@@ -1,8 +1,8 @@
 use nom::{
     branch::alt,
     character::complete::{digit1, one_of},
-    combinator::{map_res, opt},
-    sequence::{pair, tuple},
+    multi::many0,
+    sequence::tuple,
     IResult,
 };
 
@@ -10,6 +10,20 @@ use nom::{
 pub enum Expr {
     Scalar(i64),
     Binary(Box<Expr>, BinaryOp, Box<Expr>),
+}
+
+impl Expr {
+    pub fn eval(&self) -> i64 {
+        match self {
+            Expr::Scalar(val) => *val,
+            Expr::Binary(lhs, op, rhs) => match op {
+                BinaryOp::Add => lhs.eval() + rhs.eval(),
+                BinaryOp::Minus => lhs.eval() - rhs.eval(),
+                BinaryOp::Multiple => lhs.eval() * rhs.eval(),
+                BinaryOp::Divide => lhs.eval() / rhs.eval(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -27,7 +41,8 @@ impl From<(Expr, BinaryOp, Expr)> for Expr {
 }
 
 fn scalar_expr(input: &str) -> IResult<&str, Expr> {
-    map_res(digit1, str::parse::<i64>)(input).map(|(input, scalar)| (input, Expr::Scalar(scalar)))
+    let (input, scalar) = digit1(input)?;
+    Ok((input, Expr::Scalar(scalar.parse().unwrap())))
 }
 
 fn parens_expr(input: &str) -> IResult<&str, Expr> {
@@ -35,42 +50,40 @@ fn parens_expr(input: &str) -> IResult<&str, Expr> {
     Ok((input, expr))
 }
 
-/// factor := (scalar | parens) ( ('*' | '/') factor)?
+/// factor := scalar | parens
 fn factor_expr(input: &str) -> IResult<&str, Expr> {
-    let (input, (lhs, op_rhs)) = pair(
-        alt((scalar_expr, parens_expr)),
-        opt(tuple((one_of("*/"), factor_expr))),
-    )(input)?;
-    if let Some((op, rhs)) = op_rhs {
+    let (input, expr) = alt((parens_expr, scalar_expr))(input)?;
+    Ok((input, expr))
+}
+
+/// term := factor ( ('*' | '/') factor)*
+fn term_expr(input: &str) -> IResult<&str, Expr> {
+    let (input, (first, rest)) =
+        tuple((factor_expr, many0(tuple((one_of("*/"), factor_expr)))))(input)?;
+    let expr = rest.into_iter().fold(first, |expr, (op, factor)| {
         let op = match op {
             '*' => BinaryOp::Multiple,
             '/' => BinaryOp::Divide,
             _ => unreachable!(),
         };
-        Ok((input, (lhs, op, rhs).into()))
-    } else {
-        Ok((input, lhs))
-    }
+        (expr, op, factor).into()
+    });
+    Ok((input, expr))
 }
 
-/// term := factor ( ('+' | '-') term)?
-fn term_expr(input: &str) -> IResult<&str, Expr> {
-    let (input, (lhs, op_rhs)) =
-        tuple((factor_expr, opt(tuple((one_of("+-"), term_expr)))))(input)?;
-    if let Some((op, rhs)) = op_rhs {
+/// binary := term ( ('+' | '-') term)*
+pub fn binary_expr(input: &str) -> IResult<&str, Expr> {
+    let (input, (first, rest)) =
+        tuple((term_expr, many0(tuple((one_of("+-"), term_expr)))))(input)?;
+    let expr = rest.into_iter().fold(first, |expr, (op, term)| {
         let op = match op {
             '+' => BinaryOp::Add,
             '-' => BinaryOp::Minus,
             _ => unreachable!(),
         };
-        Ok((input, (lhs, op, rhs).into()))
-    } else {
-        Ok((input, lhs))
-    }
-}
-
-pub fn binary_expr(input: &str) -> IResult<&str, Expr> {
-    term_expr(input)
+        (expr, op, term).into()
+    });
+    Ok((input, expr))
 }
 
 #[cfg(test)]
@@ -85,7 +98,7 @@ mod test {
         }
     }
     #[test]
-    fn test_factor_expr() {
+    fn test_term_expr() {
         for (input, expected) in [
             ("19", Scalar(19)),
             ("1", Scalar(1)),
@@ -93,10 +106,10 @@ mod test {
             ("19/12", (Scalar(19), Divide, Scalar(12)).into()),
             (
                 "19*12/2",
-                (Scalar(19), Multiple, (Scalar(12), Divide, Scalar(2)).into()).into(),
+                ((Scalar(19), Multiple, Scalar(12)).into(), Divide, Scalar(2)).into(),
             ),
         ] {
-            assert_eq!(factor_expr(input), Ok(("", expected)), "input: {}", input);
+            assert_eq!(term_expr(input), Ok(("", expected)), "input: {}", input);
         }
     }
     #[test]
@@ -124,6 +137,15 @@ mod test {
                     (Scalar(1), Add, Scalar(2)).into(),
                     Multiple,
                     (Scalar(3), Minus, Scalar(4)).into(),
+                )
+                    .into(),
+            ),
+            (
+                "1*2/3+4/5*6",
+                (
+                    ((Scalar(1), Multiple, Scalar(2)).into(), Divide, Scalar(3)).into(),
+                    Add,
+                    ((Scalar(4), Divide, Scalar(5)).into(), Multiple, Scalar(6)).into(),
                 )
                     .into(),
             ),
