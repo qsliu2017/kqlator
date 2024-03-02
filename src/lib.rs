@@ -5,6 +5,22 @@ use nom::{
     sequence::tuple,
     IResult,
 };
+use wasm_bindgen::prelude::wasm_bindgen;
+
+#[wasm_bindgen]
+pub struct ExprResult {
+    pub value: i64,
+    pub rest: usize,
+}
+
+#[wasm_bindgen]
+pub fn evaluate(input: &str) -> ExprResult {
+    let (rest, expr) = binary_expr(input).unwrap();
+    ExprResult {
+        value: expr.eval(),
+        rest: rest.len(),
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Expr {

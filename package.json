@@ -11,6 +11,8 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^1.0.14",
     "@types/chrome": "^0.0.262",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "vite-plugin-top-level-await": "^1.4.1",
+    "vite-plugin-wasm": "^3.3.0"
   }
 }

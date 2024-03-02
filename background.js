@@ -1,6 +1,12 @@
+import { evaluate } from "./wasm";
 chrome.omnibox.onInputChanged.addListener((input, suggest) => {
+  const { rest, value } = evaluate(input);
   suggest([
-    { content: "color-divs", description: "Make everything red" },
-    { content: "border-divs", description: "Give everything a border" },
+    {
+      content: `${value}`,
+      description: `<url>${input.split(0, rest)}</url>${input.split(
+        rest
+      )} = ${value}`,
+    },
   ]);
 });
